@@ -34,7 +34,8 @@ export async function saveEpisode(input: {
   let audioUrl: string | null = null;
 
   if (supabase && input.audio) {
-    const path = `${input.userId ?? "public"}/${input.id}.mp3`;
+    const safeUserId = (input.userId ?? "public").replace(/[^a-zA-Z0-9_\-]/g, "_");
+    const path = `${safeUserId}/${input.id}.mp3`;
     const upload = await supabase.storage.from(bucket).upload(path, input.audio, {
       contentType: "audio/mpeg",
       upsert: true

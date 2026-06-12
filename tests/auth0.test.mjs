@@ -13,7 +13,7 @@ test("Auth0 env contains required web app values", () => {
     "AUTH0_SECRET"
   ]);
 
-  assert.equal(env.AUTH0_BASE_URL, "http://localhost:3000");
+  assert.equal(env.AUTH0_BASE_URL, "https://localhost:3000");
   assert.match(env.AUTH0_ISSUER_BASE_URL, /^https:\/\/.+\.auth0\.com$/);
 });
 

@@ -51,3 +51,5 @@ tsconfig.tsbuildinfo
 .dockerignore
 
 mydocs/
+
+certificates

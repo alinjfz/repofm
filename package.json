@@ -3,15 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --experimental-https",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs",
+    "test": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --test tests/*.test.mjs",
     "test:auth0": "node --test tests/auth0.test.mjs",
     "test:providers": "node --test tests/providers.test.mjs",
-    "test:app": "node --test tests/app.test.mjs"
+    "test:app": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --test tests/app.test.mjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^3.7.0",
