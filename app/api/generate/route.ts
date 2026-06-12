@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
 import { z } from "zod";
-import { createJob, runGeneration } from "@/lib/jobs";
+import { runGeneration } from "@/lib/jobs";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -19,9 +19,16 @@ export async function POST(request: Request) {
   }
 
   const session = await getSession();
-  const job = await createJob();
+  const id = crypto.randomUUID();
 
-  runGeneration(job.id, parsed.data.repoUrl, parsed.data.template, session?.user?.sub ?? null);
-
-  return NextResponse.json({ jobId: job.id });
+  try {
+    const episode = await runGeneration(id, parsed.data.repoUrl, parsed.data.template, session?.user?.sub ?? null);
+    return NextResponse.json({ episodeId: episode.id });
+  } catch (error) {
+    console.error("Generation failed:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Generation failed." },
+      { status: 500 }
+    );
+  }
 }

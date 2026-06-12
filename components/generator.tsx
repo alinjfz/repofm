@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { hostTemplates } from "@/lib/templates";
-import type { GenerationJob } from "@/lib/types";
 
-const steps = [
-  "Analyzing README",
-  "Picking files",
-  "Writing script",
-  "Recording hosts",
-  "Saving share link"
+const STEPS = [
+  { label: "Analyzing README", durationMs: 8_000 },
+  { label: "Picking key files", durationMs: 12_000 },
+  { label: "Writing script", durationMs: 25_000 },
+  { label: "Recording hosts", durationMs: 30_000 },
+  { label: "Saving episode", durationMs: 5_000 },
 ];
+
+const TOTAL_MS = STEPS.reduce((s, step) => s + step.durationMs, 0);
 
 export function Generator() {
   const router = useRouter();
@@ -20,59 +21,74 @@ export function Generator() {
 
   const [repoUrl, setRepoUrl] = useState("https://github.com/expressjs/express");
   const [template, setTemplate] = useState(initialTemplate);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [job, setJob] = useState<GenerationJob | null>(null);
+  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [isPending, startTransition] = useTransition();
+
+  const startRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const t = searchParams.get("template");
     if (t && hostTemplates.some((h) => h.id === t)) setTemplate(t);
   }, [searchParams]);
 
-  async function submit() {
-    setError(null);
-    setJob(null);
+  useEffect(() => {
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
 
-    const response = await fetch("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repoUrl, template })
-    });
-
-    const payload = await response.json();
-
-    if (!response.ok) {
-      setError(payload.error ?? "Could not start generation.");
-      return;
-    }
-
-    setJobId(payload.jobId);
+  function startTimer() {
+    startRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsed(Date.now() - (startRef.current ?? Date.now()));
+    }, 200);
   }
 
-  useEffect(() => {
-    if (!jobId) return;
+  function stopTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  }
 
-    const interval = window.setInterval(async () => {
-      const response = await fetch(`/api/jobs/${jobId}`);
-      if (!response.ok) return;
+  async function submit() {
+    setError(null);
+    setElapsed(0);
+    setRunning(true);
+    startTimer();
 
-      const nextJob = (await response.json()) as GenerationJob;
-      setJob(nextJob);
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoUrl, template })
+      });
 
-      if (nextJob.status === "complete" && nextJob.episodeId) {
-        window.clearInterval(interval);
-        startTransition(() => router.push(`/episode/${nextJob.episodeId}`));
+      const payload = await response.json();
+
+      if (!response.ok) {
+        setError(payload.error ?? "Generation failed.");
+        return;
       }
 
-      if (nextJob.status === "failed") {
-        window.clearInterval(interval);
-        setError(nextJob.error ?? nextJob.message);
-      }
-    }, 1600);
+      stopTimer();
+      startTransition(() => router.push(`/episode/${payload.episodeId}`));
+    } catch {
+      setError("Network error — please try again.");
+    } finally {
+      stopTimer();
+      setRunning(false);
+    }
+  }
 
-    return () => window.clearInterval(interval);
-  }, [jobId, router]);
+  // Compute fake progress from elapsed time
+  const progress = Math.min(97, Math.round((elapsed / TOTAL_MS) * 100));
+
+  let stepIndex = 0;
+  let acc = 0;
+  for (let i = 0; i < STEPS.length; i++) {
+    acc += STEPS[i].durationMs;
+    if (elapsed < acc) { stepIndex = i; break; }
+    stepIndex = i;
+  }
 
   return (
     <div className="card" style={{ marginTop: 28, padding: 24 }}>
@@ -82,8 +98,9 @@ export function Generator() {
           <input
             className="input"
             value={repoUrl}
-            onChange={(event) => setRepoUrl(event.target.value)}
+            onChange={(e) => setRepoUrl(e.target.value)}
             placeholder="https://github.com/owner/repo"
+            disabled={running}
           />
         </label>
 
@@ -97,10 +114,11 @@ export function Generator() {
                   className="card"
                   key={item.id}
                   onClick={() => setTemplate(item.id)}
+                  disabled={running}
                   style={{
                     padding: 18,
                     textAlign: "left",
-                    cursor: "pointer",
+                    cursor: running ? "not-allowed" : "pointer",
                     background: selected ? "var(--sun)" : "var(--card)",
                     boxShadow: selected ? "7px 7px 0 var(--ink)" : "var(--shadow)"
                   }}
@@ -119,8 +137,13 @@ export function Generator() {
           </div>
         </div>
 
-        <button className="button" disabled={Boolean(jobId && job?.status !== "failed") || isPending} onClick={submit} type="button">
-          {jobId && job?.status !== "failed" ? "Generating..." : "Generate episode"}
+        <button
+          className="button"
+          disabled={running || isPending}
+          onClick={submit}
+          type="button"
+        >
+          {running ? "Generating…" : "Generate episode"}
         </button>
 
         {error ? (
@@ -129,22 +152,29 @@ export function Generator() {
           </div>
         ) : null}
 
-        {job ? (
+        {running ? (
           <div className="grid" style={{ gap: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-              <strong>{job.message}</strong>
-              <span className="pill">{job.progress}%</span>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <strong style={{ fontSize: "1rem" }}>{STEPS[stepIndex].label}</strong>
+              <span className="pill">{progress}%</span>
             </div>
             <div style={{ height: 14, border: "2px solid var(--ink)", borderRadius: 999, overflow: "hidden", background: "white" }}>
-              <div style={{ width: `${job.progress}%`, height: "100%", background: "var(--mint)", transition: "width 400ms ease" }} />
+              <div style={{ width: `${progress}%`, height: "100%", background: "var(--mint)", transition: "width 600ms ease" }} />
             </div>
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-              {steps.map((step, index) => (
-                <div className="transcript-line" key={step} style={{ opacity: job.progress >= (index + 1) * 18 ? 1 : 0.45 }}>
-                  {step}
+              {STEPS.map((step, i) => (
+                <div
+                  className="transcript-line"
+                  key={step.label}
+                  style={{ opacity: i <= stepIndex ? 1 : 0.38, transition: "opacity 400ms ease", padding: "10px 12px" }}
+                >
+                  {i < stepIndex ? "✓ " : i === stepIndex ? "→ " : ""}{step.label}
                 </div>
               ))}
             </div>
+            <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.85rem", textAlign: "center" }}>
+              This takes 1–3 minutes depending on the repo size.
+            </p>
           </div>
         ) : null}
       </div>
