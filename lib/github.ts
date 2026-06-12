@@ -27,15 +27,15 @@ const BORING_PATHS = [
 
 export function parseGitHubUrl(input: string) {
   const trimmed = input.trim();
-  const match = trimmed.match(/github\.com[:/](?<owner>[^/\s]+)\/(?<repo>[^/\s#?]+)(?:[/?#].*)?$/i);
+  const match = trimmed.match(/github\.com[:/]([^/\s]+)\/([^/\s#?]+)(?:[/?#].*)?$/i);
 
-  if (!match?.groups) {
+  if (!match) {
     throw new Error("Enter a valid GitHub repository URL, for example https://github.com/expressjs/express.");
   }
 
   return {
-    owner: match.groups.owner,
-    repo: match.groups.repo.replace(/\.git$/, "")
+    owner: match[1],
+    repo: match[2].replace(/\.git$/, "")
   };
 }
 
