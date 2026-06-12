@@ -39,6 +39,7 @@ node_modules/
 out/
 coverage/
 next-env.d.ts
+tsconfig.tsbuildinfo
 
 # IDE
 .vscode/
@@ -48,5 +49,3 @@ next-env.d.ts
 
 # Docker
 .dockerignore
-
-mydocs/
