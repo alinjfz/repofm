@@ -9,7 +9,7 @@ export async function Nav() {
   return (
     <header className="shell nav">
       <Link className="brand" href="/">
-        <span className="brand-mark">FM</span>
+        <img src="/icon.png" alt="RepoFM" width={38} height={38} style={{ borderRadius: 10, display: "block" }} />
         RepoFM
       </Link>
       <nav className="nav-links" aria-label="Primary navigation">
