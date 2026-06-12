@@ -3,16 +3,12 @@ import { generateEpisodeAudio } from "@/lib/audio";
 import { generatePodcastScript } from "@/lib/script";
 import { getTemplate } from "@/lib/templates";
 import type { GenerationJob, GenerationStep } from "@/lib/types";
-import { saveEpisode } from "@/lib/supabase";
+import { saveEpisode, getSupabaseAdmin } from "@/lib/supabase";
 
-const globalForJobs = globalThis as typeof globalThis & {
-  __repofmJobs?: Map<string, GenerationJob>;
-};
+// In-memory fallback for local dev (no Supabase configured)
+const localJobs = new Map<string, GenerationJob>();
 
-const jobs = globalForJobs.__repofmJobs ?? new Map<string, GenerationJob>();
-globalForJobs.__repofmJobs = jobs;
-
-export function createJob() {
+export function createJob(): GenerationJob {
   const id = crypto.randomUUID();
   const job: GenerationJob = {
     id,
@@ -21,31 +17,68 @@ export function createJob() {
     progress: 5,
     createdAt: new Date().toISOString()
   };
-  jobs.set(id, job);
+
+  localJobs.set(id, job);
+
+  // Persist to Supabase asynchronously — don't block the response
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    supabase.from("generation_jobs").insert({
+      id: job.id,
+      status: job.status,
+      message: job.message,
+      progress: job.progress,
+      created_at: job.createdAt
+    }).then(({ error }) => {
+      if (error) console.warn("Failed to persist job to Supabase:", error.message);
+    });
+  }
+
   return job;
 }
 
-export function getJob(id: string) {
-  return jobs.get(id) ?? null;
+export async function getJob(id: string): Promise<GenerationJob | null> {
+  const supabase = getSupabaseAdmin();
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("generation_jobs")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (!error && data) {
+      return {
+        id: data.id,
+        status: data.status as GenerationStep,
+        message: data.message,
+        progress: data.progress,
+        episodeId: data.episode_id ?? undefined,
+        error: data.error ?? undefined,
+        createdAt: data.created_at
+      };
+    }
+  }
+
+  return localJobs.get(id) ?? null;
 }
 
 export async function runGeneration(jobId: string, repoUrl: string, templateId: string, userId: string | null) {
   const template = getTemplate(templateId);
 
   try {
-    updateJob(jobId, "analyzing-readme", "Analyzing README and repository metadata.", 18);
+    await updateJob(jobId, "analyzing-readme", "Analyzing README and repository metadata.", 18);
     const context = await getRepoContext(repoUrl);
 
-    updateJob(jobId, "picking-files", "Picking the files that explain the repo best.", 38);
-    // File picking happens inside getRepoContext; this progress label keeps the frontend story clear.
+    await updateJob(jobId, "picking-files", "Picking the files that explain the repo best.", 38);
 
-    updateJob(jobId, "writing-script", "Writing the two-host podcast script.", 58);
+    await updateJob(jobId, "writing-script", "Writing the two-host podcast script.", 58);
     const script = await generatePodcastScript(context, template);
 
-    updateJob(jobId, "recording-hosts", "Recording both hosts with ElevenLabs.", 78);
+    await updateJob(jobId, "recording-hosts", "Recording both hosts with ElevenLabs.", 78);
     const audio = await generateEpisodeAudio(script, template);
 
-    updateJob(jobId, "saving-episode", "Saving the episode and shareable link.", 92);
+    await updateJob(jobId, "saving-episode", "Saving the episode and shareable link.", 92);
     const episode = await saveEpisode({
       id: jobId,
       userId,
@@ -57,9 +90,9 @@ export async function runGeneration(jobId: string, repoUrl: string, templateId: 
       audio
     });
 
-    updateJob(jobId, "complete", "Episode ready.", 100, episode.id);
+    await updateJob(jobId, "complete", "Episode ready.", 100, episode.id);
   } catch (error) {
-    updateJob(
+    await updateJob(
       jobId,
       "failed",
       "Generation failed. Check the server logs for the full stack trace.",
@@ -71,7 +104,7 @@ export async function runGeneration(jobId: string, repoUrl: string, templateId: 
   }
 }
 
-function updateJob(
+async function updateJob(
   id: string,
   status: GenerationStep,
   message: string,
@@ -79,15 +112,31 @@ function updateJob(
   episodeId?: string,
   error?: string
 ) {
-  const current = jobs.get(id);
-  if (!current) return;
-
-  jobs.set(id, {
-    ...current,
+  const patch: GenerationJob = {
+    id,
     status,
     message,
     progress,
     episodeId,
-    error
-  });
+    error,
+    createdAt: localJobs.get(id)?.createdAt ?? new Date().toISOString()
+  };
+
+  localJobs.set(id, patch);
+
+  const supabase = getSupabaseAdmin();
+  if (supabase) {
+    const { error: dbError } = await supabase
+      .from("generation_jobs")
+      .update({
+        status,
+        message,
+        progress,
+        episode_id: episodeId ?? null,
+        error: error ?? null
+      })
+      .eq("id", id);
+
+    if (dbError) console.warn("Failed to update job in Supabase:", dbError.message);
+  }
 }
