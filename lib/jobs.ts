@@ -8,7 +8,7 @@ import { saveEpisode, getSupabaseAdmin } from "@/lib/supabase";
 // In-memory fallback for local dev (no Supabase configured)
 const localJobs = new Map<string, GenerationJob>();
 
-export function createJob(): GenerationJob {
+export async function createJob(): Promise<GenerationJob> {
   const id = crypto.randomUUID();
   const job: GenerationJob = {
     id,
@@ -20,18 +20,16 @@ export function createJob(): GenerationJob {
 
   localJobs.set(id, job);
 
-  // Persist to Supabase asynchronously — don't block the response
   const supabase = getSupabaseAdmin();
   if (supabase) {
-    supabase.from("generation_jobs").insert({
+    const { error } = await supabase.from("generation_jobs").insert({
       id: job.id,
       status: job.status,
       message: job.message,
       progress: job.progress,
       created_at: job.createdAt
-    }).then(({ error }) => {
-      if (error) console.warn("Failed to persist job to Supabase:", error.message);
     });
+    if (error) console.error("Failed to insert job into Supabase:", error.message);
   }
 
   return job;

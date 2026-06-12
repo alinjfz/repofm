@@ -18,8 +18,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Send a valid GitHub repo URL and template." }, { status: 400 });
   }
 
-  const job = createJob();
   const session = await getSession();
+  const job = await createJob();
 
   runGeneration(job.id, parsed.data.repoUrl, parsed.data.template, session?.user?.sub ?? null);
 
