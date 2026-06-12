@@ -5,7 +5,12 @@ import { getTemplate } from "@/lib/templates";
 import type { GenerationJob, GenerationStep } from "@/lib/types";
 import { saveEpisode } from "@/lib/supabase";
 
-const jobs = new Map<string, GenerationJob>();
+const globalForJobs = globalThis as typeof globalThis & {
+  __repofmJobs?: Map<string, GenerationJob>;
+};
+
+const jobs = globalForJobs.__repofmJobs ?? new Map<string, GenerationJob>();
+globalForJobs.__repofmJobs = jobs;
 
 export function createJob() {
   const id = crypto.randomUUID();

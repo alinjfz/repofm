@@ -6,9 +6,11 @@ export async function generateEpisodeAudio(script: ScriptSegment[], template: Ho
     return null;
   }
 
-  const chunks = await Promise.all(
-    script.map((segment) => textToSpeech(segment.text, template.voices[segment.host]))
-  );
+  const chunks: Buffer[] = [];
+  for (const segment of script) {
+    chunks.push(await textToSpeech(segment.text, template.voices[segment.host]));
+    await sleep(350);
+  }
 
   return Buffer.concat(chunks);
 }
@@ -34,8 +36,13 @@ async function textToSpeech(text: string, voiceId: string) {
   });
 
   if (!response.ok) {
-    throw new Error(`ElevenLabs TTS failed with status ${response.status}`);
+    const detail = await response.text().catch(() => "");
+    throw new Error(`ElevenLabs TTS failed with status ${response.status}${detail ? `: ${detail.slice(0, 240)}` : ""}`);
   }
 
   return Buffer.from(await response.arrayBuffer());
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

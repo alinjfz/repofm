@@ -20,35 +20,43 @@ export async function generatePodcastScript(context: RepoContext, template: Host
     return fallbackScript(context, template);
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: [
-          "You write short, funny, technically accurate two-host podcast scripts for developers.",
-          "Return JSON only in this shape: {\"script\":[{\"host\":\"alex\",\"text\":\"...\"},{\"host\":\"sam\",\"text\":\"...\"}]}",
-          "Use 8 to 12 turns total. Keep it around 3 minutes. Avoid markdown.",
-          "Hosts are addressed internally as alex and sam.",
-          template.systemPersona
-        ].join("\n")
-      },
-      {
-        role: "user",
-        content: buildPrompt(context)
-      }
-    ]
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_BASE_URL || undefined,
   });
+  try {
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You write short, funny, technically accurate two-host podcast scripts for developers.",
+            "Return JSON only in this shape: {\"script\":[{\"host\":\"alex\",\"text\":\"...\"},{\"host\":\"sam\",\"text\":\"...\"}]}",
+            "Use 8 to 12 turns total. Keep it around 3 minutes. Avoid markdown.",
+            "Hosts are addressed internally as alex and sam.",
+            template.systemPersona
+          ].join("\n")
+        },
+        {
+          role: "user",
+          content: buildPrompt(context)
+        }
+      ]
+    });
 
-  const parsed = scriptSchema.safeParse(JSON.parse(response.choices[0]?.message.content ?? "{}"));
+    const parsed = scriptSchema.safeParse(JSON.parse(response.choices[0]?.message.content ?? "{}"));
 
-  if (!parsed.success) {
+    if (!parsed.success) {
+      return fallbackScript(context, template);
+    }
+
+    return parsed.data.script;
+  } catch (error) {
+    console.warn("OpenAI script generation failed; falling back to local script.", error);
     return fallbackScript(context, template);
   }
-
-  return parsed.data.script;
 }
 
 function buildPrompt(context: RepoContext) {

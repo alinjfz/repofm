@@ -138,27 +138,35 @@ async function pickInterestingFiles(repoName: string, paths: string[]) {
     return heuristicFilePick(paths);
   }
 
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4o",
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You pick files that best explain how a GitHub repository works. Return JSON only: {\"files\":[\"path\"]}. Pick exactly 5 files when possible."
-      },
-      {
-        role: "user",
-        content: `Repository: ${repoName}\n\nFile tree:\n${paths.slice(0, 260).join("\n")}`
-      }
-    ]
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_BASE_URL || undefined,
   });
+  try {
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You pick files that best explain how a GitHub repository works. Return JSON only: {\"files\":[\"path\"]}. Pick exactly 5 files when possible."
+        },
+        {
+          role: "user",
+          content: `Repository: ${repoName}\n\nFile tree:\n${paths.slice(0, 260).join("\n")}`
+        }
+      ]
+    });
 
-  const parsed = JSON.parse(response.choices[0]?.message.content ?? "{\"files\":[]}") as { files?: string[] };
-  const picked = (parsed.files ?? []).filter((path) => paths.includes(path)).slice(0, 5);
+    const parsed = JSON.parse(response.choices[0]?.message.content ?? "{\"files\":[]}") as { files?: string[] };
+    const picked = (parsed.files ?? []).filter((path) => paths.includes(path)).slice(0, 5);
 
-  return picked.length > 0 ? picked : heuristicFilePick(paths);
+    return picked.length > 0 ? picked : heuristicFilePick(paths);
+  } catch (error) {
+    console.warn("OpenAI file picking failed; falling back to heuristic file selection.", error);
+    return heuristicFilePick(paths);
+  }
 }
 
 function heuristicFilePick(paths: string[]) {
