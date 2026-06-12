@@ -113,6 +113,7 @@ async function fetchTree(owner: string, repo: string, branch: string) {
 async function fetchCommits(owner: string, repo: string) {
   const data = await githubFetch<
     Array<{
+      sha: string;
       commit: {
         message: string;
         author?: {
@@ -126,11 +127,27 @@ async function fetchCommits(owner: string, repo: string) {
     }>
   >(`https://api.github.com/repos/${owner}/${repo}/commits?per_page=20`);
 
-  return data.map((commit) => ({
-    message: commit.commit.message.split("\n")[0] ?? "No commit message",
-    author: commit.author?.login ?? commit.commit.author?.name ?? "unknown",
-    date: commit.commit.author?.date ?? ""
-  }));
+  return data.map((commit) => {
+    const fullMessage = commit.commit.message;
+    const newline = fullMessage.indexOf("\n");
+    const subject = newline === -1 ? fullMessage : fullMessage.slice(0, newline);
+    const body = newline === -1 ? null : fullMessage.slice(newline + 1).trim().replace(/\n+/g, " ") || null;
+
+    return {
+      message: subject,
+      body: body ? truncate(body, 200) : null,
+      author: commit.author?.login ?? commit.commit.author?.name ?? "unknown",
+      date: commit.commit.author?.date ?? ""
+    };
+  });
+}
+
+function extractJson(raw: string): string {
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) return fence[1].trim();
+  const brace = raw.match(/\{[\s\S]*\}/);
+  if (brace) return brace[0];
+  return raw.trim();
 }
 
 async function pickInterestingFiles(repoName: string, paths: string[]) {
@@ -142,29 +159,36 @@ async function pickInterestingFiles(repoName: string, paths: string[]) {
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   });
+
   try {
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL ?? "gpt-4o",
-      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content:
-            "You pick files that best explain how a GitHub repository works. Return JSON only: {\"files\":[\"path\"]}. Pick exactly 5 files when possible."
+          content: [
+            "Pick the 5 most architecturally revealing files in this repository.",
+            "Prefer: entry points, core business logic, main router/server, key data models, config files that reveal design intent.",
+            "Avoid: tests, fixtures, generated code, lock files.",
+            "Return ONLY valid JSON: {\"files\":[\"path/to/file\"]}"
+          ].join(" ")
         },
         {
           role: "user",
           content: `Repository: ${repoName}\n\nFile tree:\n${paths.slice(0, 260).join("\n")}`
         }
-      ]
+      ],
+      max_tokens: 400,
+      temperature: 0.2
     });
 
-    const parsed = JSON.parse(response.choices[0]?.message.content ?? "{\"files\":[]}") as { files?: string[] };
+    const raw = response.choices[0]?.message.content ?? '{"files":[]}';
+    const parsed = JSON.parse(extractJson(raw)) as { files?: string[] };
     const picked = (parsed.files ?? []).filter((path) => paths.includes(path)).slice(0, 5);
 
     return picked.length > 0 ? picked : heuristicFilePick(paths);
   } catch (error) {
-    console.warn("OpenAI file picking failed; falling back to heuristic file selection.", error);
+    console.warn("File picking failed; falling back to heuristic.", error);
     return heuristicFilePick(paths);
   }
 }

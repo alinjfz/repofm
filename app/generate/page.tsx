@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Nav } from "@/components/nav";
 import { Generator } from "@/components/generator";
 
@@ -11,7 +12,9 @@ export default function GeneratePage() {
         <p className="lede">
           Paste a public GitHub repository, choose the host dynamic, and RepoFM will build a shareable episode while you watch the production board light up.
         </p>
-        <Generator />
+        <Suspense fallback={null}>
+          <Generator />
+        </Suspense>
       </section>
     </main>
   );

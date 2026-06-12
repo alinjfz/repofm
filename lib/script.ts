@@ -8,12 +8,20 @@ const scriptSchema = z.object({
     .array(
       z.object({
         host: z.enum(["alex", "sam"]),
-        text: z.string().min(1).max(900)
+        text: z.string().min(1).max(1200)
       })
     )
-    .min(6)
-    .max(16)
+    .min(8)
+    .max(20)
 });
+
+function extractJson(raw: string): string {
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) return fence[1].trim();
+  const brace = raw.match(/\{[\s\S]*\}/);
+  if (brace) return brace[0];
+  return raw.trim();
+}
 
 export async function generatePodcastScript(context: RepoContext, template: HostTemplate): Promise<ScriptSegment[]> {
   if (!process.env.OPENAI_API_KEY) {
@@ -24,95 +32,122 @@ export async function generatePodcastScript(context: RepoContext, template: Host
     apiKey: process.env.OPENAI_API_KEY,
     baseURL: process.env.OPENAI_BASE_URL || undefined,
   });
+
+  const systemPrompt = [
+    `You write technically deep, sharp two-host podcast scripts for software developers.`,
+    `Output ONLY valid JSON: {"script":[{"host":"alex","text":"..."},{"host":"sam","text":"..."}]}`,
+    `Rules:`,
+    `- 12 to 16 turns total.`,
+    `- Hosts MUST respond DIRECTLY to what the other just said. Build on their point, challenge it, or add a specific technical detail. No two adjacent turns can be on unrelated topics.`,
+    `- Go deep on architecture, specific code patterns, tradeoffs, and design decisions visible in the files. Name actual functions, modules, data structures you find.`,
+    `- ${template.hostA} (alex) leads with technical precision. ${template.hostB} (sam) challenges, stress-tests assumptions, and brings sharp follow-up questions or counterpoints.`,
+    `- Cover: repo architecture, key abstractions, notable patterns, dependency choices, recent commit trends, what the code tells you about the team's priorities.`,
+    `- Keep it conversational. Real hosts say things like "wait, but..." or "that's actually the interesting part" or "so you're saying X which means Y will eventually..."`,
+    `- No generic summaries at the end. End mid-insight if needed. No goodbye lines.`,
+    `- ${template.systemPersona}`,
+    `- Avoid markdown, avoid generic filler like "great point" or "exactly".`,
+    `- No meta-commentary about the podcast itself. Just discuss the repo.`
+  ].join("\n");
+
   try {
     const response = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL ?? "gpt-4o",
-      response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content: [
-            "You write short, funny, technically accurate two-host podcast scripts for developers.",
-            "Return JSON only in this shape: {\"script\":[{\"host\":\"alex\",\"text\":\"...\"},{\"host\":\"sam\",\"text\":\"...\"}]}",
-            "Use 8 to 12 turns total. Keep it around 3 minutes. Avoid markdown.",
-            "Hosts are addressed internally as alex and sam.",
-            template.systemPersona
-          ].join("\n")
-        },
-        {
-          role: "user",
-          content: buildPrompt(context)
-        }
-      ]
+        { role: "system", content: systemPrompt },
+        { role: "user", content: buildPrompt(context) }
+      ],
+      max_tokens: 3200,
+      temperature: 0.85
     });
 
-    const parsed = scriptSchema.safeParse(JSON.parse(response.choices[0]?.message.content ?? "{}"));
+    const raw = response.choices[0]?.message.content ?? "{}";
+    const parsed = scriptSchema.safeParse(JSON.parse(extractJson(raw)));
 
     if (!parsed.success) {
+      console.warn("Script schema validation failed:", parsed.error.issues[0]);
       return fallbackScript(context, template);
     }
 
     return parsed.data.script;
   } catch (error) {
-    console.warn("OpenAI script generation failed; falling back to local script.", error);
+    console.warn("Script generation failed; falling back to local script.", error);
     return fallbackScript(context, template);
   }
 }
 
 function buildPrompt(context: RepoContext) {
+  const commitBlock = context.commits
+    .slice(0, 15)
+    .map((c) => `- ${c.message}${c.body ? `\n  ${c.body}` : ""} (${c.author}, ${c.date})`)
+    .join("\n");
+
   return [
-    `Repo: ${context.repoName}`,
+    `Repository: ${context.repoName}`,
     `Description: ${context.description ?? "No description provided."}`,
-    "",
-    "README:",
-    context.readme,
-    "",
-    "Selected files:",
-    context.selectedFiles.map((file) => `--- ${file.path} ---\n${file.content}`).join("\n\n"),
-    "",
-    "Recent commits:",
-    context.commits.map((commit) => `- ${commit.message} (${commit.author}, ${commit.date})`).join("\n")
+    ``,
+    `--- README (first 8000 chars) ---`,
+    context.readme.slice(0, 8000),
+    ``,
+    `--- Key files ---`,
+    context.selectedFiles.map((f) => `=== ${f.path} ===\n${f.content}`).join("\n\n"),
+    ``,
+    `--- Recent commits (newest first) ---`,
+    commitBlock,
+    ``,
+    `Analyze this repo deeply. Discuss actual code structure, key abstractions, dependency choices, and what the commit history reveals about development velocity and team priorities.`
   ].join("\n");
 }
 
 function fallbackScript(context: RepoContext, template: HostTemplate): ScriptSegment[] {
-  const files = context.selectedFiles.map((file) => file.path).join(", ") || "a few likely entry points";
-  const latestCommit = context.commits[0]?.message ?? "the latest commits";
+  const shortFiles = context.selectedFiles
+    .map((f) => f.path.split("/").pop() ?? f.path)
+    .join(", ") || "the entry points";
+  const recentCommit = context.commits[0]?.message ?? "the latest changes";
+  const secondCommit = context.commits[1]?.message ?? null;
+  const desc = context.description ?? "a public repository without a description";
 
   return [
     {
       host: "alex",
-      text: `Welcome to RepoFM. Today we are opening up ${context.repoName}, a project described as ${context.description ?? "a mysterious public repository"}.`
+      text: `Today we are in ${context.repoName}. The pitch is: ${desc}. I have the key files open — ${shortFiles} — and the architecture is already telling a story.`
     },
     {
       host: "sam",
-      text: `I love when a repo arrives with lore. My first question is always: is this architecture, or did someone just keep adding folders until morale improved?`
+      text: `Before the tour: what does the entry point tell you about how opinionated this codebase is? Because "minimal" in the README usually means "you will make decisions we did not."`,
     },
     {
       host: "alex",
-      text: `The README gives us the front door, and the most useful files to inspect are ${files}. That usually tells us where the app starts, how it is configured, and what the maintainers care about.`
+      text: `Good question. The file structure here leans toward separation of concerns more than convenience — which means there is a clear internal model, but new contributors will need to locate it. That is a deliberate tradeoff.`
     },
     {
       host: "sam",
-      text: `Recent activity includes "${latestCommit}", which is either responsible maintenance or the sound of a codebase asking for a spa weekend.`
+      text: `Deliberate tradeoffs are fine until the team turns over. What does the commit history say? Recent work on "${recentCommit}" — is that a feature, a fix, or someone slowly removing a decision they regret?`
     },
     {
       host: "alex",
-      text: `In practical terms, ${context.repoName} seems built around a clear developer workflow: explain the core idea quickly, expose the important primitives, and keep contributors close to the source.`
+      text: `That commit looks like stabilization work.${secondCommit ? ` The one before it — "${secondCommit}" — is where the interesting velocity is.` : ""} The pattern is: big structural change, then a few cleanup passes. That is healthy.`
+    },
+    {
+      host: "sam",
+      text: `"Healthy" meaning they ship and then tidy up, not the other way around. I can respect that. What about dependencies — anything load-bearing that could become a maintenance liability?`
+    },
+    {
+      host: "alex",
+      text: `The dependency surface is intentionally narrow. The authors clearly made a choice about what to own versus delegate, and that shapes every abstraction downstream.`
+    },
+    {
+      host: "sam",
+      text: `Narrow dependencies also means the tricky logic lives in this codebase, not distributed across packages. Which is either confidence or stubbornness — sometimes hard to tell from the outside.`
+    },
+    {
+      host: "alex",
+      text: `Given the README's framing, I think it is confidence. They knew what the core problem was and built specifically toward it. The codebase reflects that — no obvious scope creep in the internals.`
     },
     {
       host: "sam",
       text: template.id === "explainer-roaster"
-        ? "And yes, I will roast it gently: every famous repo has at least one file that looks like it was named during a fire drill."
-        : "My skeptical note is simple: the more magical a project feels, the more the edge cases need boring, excellent documentation."
-    },
-    {
-      host: "alex",
-      text: `The big takeaway: this repo has enough surface area to teach from, enough history to discuss, and enough personality to make a good shareable audio tour.`
-    },
-    {
-      host: "sam",
-      text: "That is RepoFM doing its job: less tab archaeology, more useful context, and exactly enough jokes to survive dependency management."
+        ? `Fair. My roast would be: whoever named some of these internal modules had a very optimistic view of what "self-documenting" means. But the logic underneath is sound.`
+        : `That focus is actually what makes repos like this worth discussing — you can reverse-engineer the team's mental model just from what they chose NOT to build.`
     }
   ];
 }

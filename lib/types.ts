@@ -28,6 +28,7 @@ export type RepoContext = {
   }>;
   commits: Array<{
     message: string;
+    body: string | null;
     author: string;
     date: string;
   }>;

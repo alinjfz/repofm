@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { hostTemplates } from "@/lib/templates";
 import type { GenerationJob } from "@/lib/types";
 
@@ -15,12 +15,20 @@ const steps = [
 
 export function Generator() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTemplate = searchParams.get("template") ?? hostTemplates[0].id;
+
   const [repoUrl, setRepoUrl] = useState("https://github.com/expressjs/express");
-  const [template, setTemplate] = useState(hostTemplates[0].id);
+  const [template, setTemplate] = useState(initialTemplate);
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    const t = searchParams.get("template");
+    if (t && hostTemplates.some((h) => h.id === t)) setTemplate(t);
+  }, [searchParams]);
 
   async function submit() {
     setError(null);
@@ -99,7 +107,10 @@ export function Generator() {
                   type="button"
                 >
                   <strong style={{ display: "block", fontSize: "1.15rem" }}>{item.name}</strong>
-                  <span style={{ display: "block", color: selected ? "var(--ink)" : "var(--muted)", marginTop: 8 }}>
+                  <span style={{ display: "block", color: selected ? "var(--ink)" : "var(--muted)", marginTop: 6 }}>
+                    {item.hostA} + {item.hostB}
+                  </span>
+                  <span style={{ display: "block", color: selected ? "var(--ink)" : "var(--muted)", marginTop: 4, fontSize: "0.9rem" }}>
                     {item.description}
                   </span>
                 </button>

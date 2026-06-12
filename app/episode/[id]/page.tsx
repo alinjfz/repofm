@@ -28,8 +28,28 @@ export default async function EpisodePage({ params }: { params: { id: string } }
             {episode.audio_url ? (
               <audio controls src={episode.audio_url} style={{ width: "100%", marginTop: 18 }} />
             ) : (
-              <div className="transcript-line" style={{ marginTop: 18 }}>
-                Audio will appear here when `ELEVENLABS_API_KEY` and Supabase Storage are configured. Transcript mode is active for local demos.
+              <div style={{
+                marginTop: 18,
+                padding: "24px 20px",
+                border: "1px dashed var(--line)",
+                borderRadius: 18,
+                background: "rgba(255,255,255,0.5)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 10,
+                textAlign: "center"
+              }}>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--ocean)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+                <strong style={{ fontSize: "1rem" }}>Transcript Mode</strong>
+                <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                  Audio generation requires ElevenLabs.<br />Full transcript below.
+                </p>
               </div>
             )}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
