@@ -9,20 +9,28 @@ export async function Nav() {
   return (
     <header className="shell nav">
       <Link className="brand" href="/">
-        <img src="/icon.png" alt="RepoFM" width={38} height={38} style={{ borderRadius: 10, display: "block" }} />
+        <span className="brand-mark">FM</span>
         RepoFM
       </Link>
       <nav className="nav-links" aria-label="Primary navigation">
         {isLoggedIn ? (
           <>
-            <Link className="button ghost" href="/dashboard">My Episodes</Link>
-            <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{session?.user?.name ?? session?.user?.email}</span>
+            <Link className="button ghost" href="/dashboard">
+              My Episodes
+            </Link>
+            <span style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+              {session?.user?.name ?? session?.user?.email}
+            </span>
             <LogoutButton />
           </>
         ) : (
-          <Link className="button secondary" href="/api/auth/login">Log in</Link>
+          <Link className="button secondary" href="/api/auth/login">
+            Log in
+          </Link>
         )}
-        <Link className="button" href="/generate">Generate</Link>
+        <Link className="button" href="/generate">
+          Generate
+        </Link>
       </nav>
     </header>
   );
