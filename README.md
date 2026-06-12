@@ -29,6 +29,8 @@ This repo was implemented in small debug checkpoints:
 - `6a2a64e` - install app dependencies
 - `aa7d0c7` - fix verification issues
 - `4ea3d69` - harden Next build config
+- `1ecfb57` - document setup and schema
+- `221c960` - harden env-backed generation
 
 Run `git log --oneline` to inspect each step.
 
@@ -92,7 +94,8 @@ Use `GITHUB_TOKEN` if you hit unauthenticated GitHub API rate limits.
 1. Create an Auth0 application.
 2. Use a Regular Web Application.
 3. Enable GitHub social login in Auth0 if you want the sponsor-aligned flow.
-4. Add these application URLs for local development:
+4. In the Auth0 Dashboard, open the application whose Client ID matches `AUTH0_CLIENT_ID`.
+5. Add these Application URI values for local development:
 
 ```text
 Allowed Callback URLs:
@@ -103,12 +106,39 @@ http://localhost:3000
 
 Allowed Web Origins:
 http://localhost:3000
+
+Allowed Origins (CORS):
+http://localhost:3000
 ```
+
+Auth0 validates these fields differently:
+
+- `Allowed Callback URLs` must include the full callback path exactly: `http://localhost:3000/api/auth/callback`
+- `Allowed Logout URLs` should include the app origin: `http://localhost:3000`
+- `Allowed Web Origins` should include only the origin, with no path: `http://localhost:3000`
+- `Allowed Origins (CORS)` should include only the origin if browser calls need CORS access
+
+If Auth0 shows `Callback URL mismatch`, run:
+
+```bash
+pnpm test:auth0
+```
+
+The test calls the Auth0 `/authorize` endpoint with the same callback URL that the app sends. If it fails, update `Allowed Callback URLs` in Auth0 and click `Save Changes`.
 
 For Vercel, add the same URLs with your deployed domain:
 
 ```text
+Allowed Callback URLs:
 https://YOUR-APP.vercel.app/api/auth/callback
+
+Allowed Logout URLs:
+https://YOUR-APP.vercel.app
+
+Allowed Web Origins:
+https://YOUR-APP.vercel.app
+
+Allowed Origins (CORS):
 https://YOUR-APP.vercel.app
 ```
 
@@ -192,6 +222,10 @@ Audio segments are generated in parallel and concatenated server-side with `Buff
 pnpm dev
 pnpm lint
 pnpm typecheck
+pnpm test:auth0
+pnpm test:providers
+pnpm test:app
+pnpm test
 pnpm build
 pnpm start
 ```
@@ -201,8 +235,12 @@ Recommended verification before demo:
 ```bash
 pnpm lint
 pnpm typecheck
+pnpm test:auth0
+pnpm test:providers
 pnpm build
 ```
+
+`pnpm test:app` expects the dev server to already be running at `APP_URL` / `AUTH0_BASE_URL`, usually `http://localhost:3000`.
 
 ## Product Flow
 
